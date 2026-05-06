@@ -1,11 +1,14 @@
 import express from "express";
 import { PORT } from "./config/env.js";
+import authRouter from "./routes/auth.route.js";
+import subscriptionRouter from "./routes/subscription.route.js";
+import userRouter from "./routes/user.route.js";
+
 const app = express();
 
-//routes
-app.get("/", (req, res) => {
-  res.send("Welcome to the subscription tracker API");
-});
+app.use("/api/v1/auth", authRouter);
+app.use("/api/v1/subscriptions", subscriptionRouter);
+app.use("/api/v1/users", userRouter);
 
 app.listen(PORT, () => {
   console.log(
