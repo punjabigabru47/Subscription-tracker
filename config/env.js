@@ -3,4 +3,15 @@ import process from "node:process";
 
 config({ path: `.env.${process.env.NODE_ENV || "development"}.local` });
 
-export const { PORT, NODE_ENV } = process.env;
+export const {
+  DATABASE_URL,
+  NODE_ENV,
+  PGDATABASE,
+  PGHOST,
+  PGPASSWORD,
+  PGPORT,
+  PGUSER,
+  PORT,
+  JWT_SECRET,
+  JWT_EXPIRATION,
+} = process.env;
