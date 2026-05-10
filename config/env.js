@@ -14,4 +14,6 @@ export const {
   PORT,
   JWT_SECRET,
   JWT_EXPIRATION,
+  ARCJET_API_KEY,
+  ARCJET_ENV,
 } = process.env;
