@@ -11,14 +11,17 @@
   "dependencies": {
     "@arcjet/inspect": "^1.4.0",
     "@arcjet/node": "^1.4.0",
+    "@upstash/workflow": "^1.2.1",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.3",
     "cookie-parser": "^1.4.7",
+    "dayjs": "^1.11.20",
     "debug": "~2.6.9",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "morgan": "^1.10.1",
+    "nodemailer": "^8.0.7",
     "pg": "^8.20.0"
   },
   "devDependencies": {
