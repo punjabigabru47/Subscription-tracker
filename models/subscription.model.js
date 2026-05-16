@@ -1,6 +1,6 @@
 import pool from "../database/database.js";
 
-export const subscriptionSchema = `
+export const subscriptionTableSql = `
   CREATE TABLE IF NOT EXISTS subscriptions (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -19,7 +19,7 @@ export const subscriptionSchema = `
 `;
 
 export const createSubscriptionTable = async () => {
-  await pool.query(subscriptionSchema);
+  await pool.query(subscriptionTableSql);
 };
 
 export default pool;

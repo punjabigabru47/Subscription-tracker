@@ -5,6 +5,7 @@ config({ path: `.env.${process.env.NODE_ENV || "development"}.local` });
 
 export const {
   DATABASE_URL,
+  CORS_ORIGIN,
   NODE_ENV,
   PGDATABASE,
   PGHOST,

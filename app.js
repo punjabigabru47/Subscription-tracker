@@ -1,21 +1,33 @@
 import cookieParser from "cookie-parser";
+import cors from "cors";
 import express from "express";
-import { PORT } from "./config/env.js";
+import helmet from "helmet";
+import { pathToFileURL } from "node:url";
+import { CORS_ORIGIN, PORT } from "./config/env.js";
 import { connectToDatabase } from "./database/database.js";
 import { arcjetMiddleware } from "./middlewares/arcjet.middleware.js";
 import { errorMiddleware } from "./middlewares/error.middleware.js";
-import { createSubscriptionTable } from "./models/subscription.model.js";
-import { createUserTable } from "./models/user.model.js";
 import authRouter from "./routes/auth.route.js";
 import subscriptionRouter from "./routes/subscription.route.js";
 import userRouter from "./routes/user.route.js";
 import workflowRouter from "./routes/workflow.route.js";
 
 const app = express();
+app.set("trust proxy", 1);
+app.use(helmet());
+app.use(
+  cors({
+    origin: CORS_ORIGIN ? CORS_ORIGIN.split(",") : true,
+    credentials: true,
+  }),
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
-app.use(arcjetMiddleware);
+
+if (process.env.NODE_ENV !== "test") {
+  app.use(arcjetMiddleware);
+}
 
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/subscriptions", subscriptionRouter);
@@ -23,14 +35,18 @@ app.use("/api/v1/users", userRouter);
 app.use("/api/v1/workflow", workflowRouter);
 app.use(errorMiddleware);
 
-await connectToDatabase();
-await createUserTable();
-await createSubscriptionTable();
+export const initializeApp = async () => {
+  await connectToDatabase();
+};
 
-app.listen(PORT, () => {
-  console.log(
-    `Subscription tracker API is running on http://localhost:${PORT}`,
-  );
-});
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await initializeApp();
+
+  app.listen(PORT, () => {
+    console.log(
+      `Subscription tracker API is running on http://localhost:${PORT}`,
+    );
+  });
+}
 
 export default app;

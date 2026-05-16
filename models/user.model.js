@@ -1,6 +1,6 @@
 import pool from "../database/database.js";
 
-export const userSchema = `
+export const userTableSql = `
   CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     name VARCHAR(255) NOT NULL,
@@ -12,7 +12,7 @@ export const userSchema = `
 `;
 
 export const createUserTable = async () => {
-  await pool.query(userSchema);
+  await pool.query(userTableSql);
 };
 
 export default pool;

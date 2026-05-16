@@ -24,7 +24,6 @@ export const authorize = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: "Unauthorized",
-        error: "No token provided",
       });
     }
 
@@ -42,7 +41,6 @@ export const authorize = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: "Unauthorized",
-        error: "Invalid token payload",
       });
     }
 
@@ -55,17 +53,17 @@ export const authorize = async (req, res, next) => {
       return res.status(401).json({
         success: false,
         message: "Unauthorized",
-        error: "User not found",
       });
     }
 
     req.user = rows[0];
     next();
   } catch (error) {
+    void error;
+
     return res.status(401).json({
       success: false,
       message: "Unauthorized",
-      error: error.message,
     });
   }
 };

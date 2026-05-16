@@ -1,12 +1,11 @@
-import { SERVER_URL } from "../config/env.js";
+import { NODE_ENV, SERVER_URL } from "../config/env.js";
 import workflowClient from "../config/upstash.js";
 import pool from "../models/subscription.model.js";
-
-const createHttpError = (message, statusCode) => {
-  const error = new Error(message);
-  error.statusCode = statusCode;
-  return error;
-};
+import {
+  createHttpError,
+  createSubscriptionSchema,
+  parseRequest,
+} from "../utils/validation.js";
 
 const calculateRenewalDate = (startDate, frequency) => {
   const renewalDate = new Date(startDate);
@@ -54,21 +53,6 @@ const getStatus = (renewalDate, customStatus) => {
   return renewal < today ? "expired" : "active";
 };
 
-const validateSubscriptionInput = ({ name, price, frequency, startDate }) => {
-  if (
-    !name ||
-    price === undefined ||
-    price === null ||
-    !frequency ||
-    !startDate
-  ) {
-    throw createHttpError(
-      "name, price, frequency, and startDate are required",
-      400,
-    );
-  }
-};
-
 // createSubscription
 export const createSubscription = async (req, res, next) => {
   try {
@@ -81,16 +65,14 @@ export const createSubscription = async (req, res, next) => {
     const {
       name,
       price,
-      currency = "USD",
+      currency,
       frequency,
-      category = null,
+      category,
       paymentMethod,
       status,
       startDate,
       renewalDate,
-    } = req.body;
-
-    validateSubscriptionInput({ name, price, frequency, startDate });
+    } = parseRequest(createSubscriptionSchema, req.body);
 
     const finalRenewalDate =
       renewalDate ?? calculateRenewalDate(startDate, frequency);
@@ -138,15 +120,7 @@ export const createSubscription = async (req, res, next) => {
     );
 
     const subscription = rows[0];
-    const { workflowRunId } = await workflowClient.trigger({
-      url: new URL(
-        "/api/v1/workflow/subscription/reminder",
-        SERVER_URL,
-      ).toString(),
-      body: {
-        subscriptionId: subscription.id,
-      },
-    });
+    const { workflowRunId } = await triggerSubscriptionWorkflow(subscription.id);
 
     console.log(`Workflow triggered: ${workflowRunId}`);
 
@@ -161,6 +135,22 @@ export const createSubscription = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+const triggerSubscriptionWorkflow = async (subscriptionId) => {
+  if (NODE_ENV === "test") {
+    return { workflowRunId: "test-workflow-run" };
+  }
+
+  return await workflowClient.trigger({
+    url: new URL(
+      "/api/v1/workflow/subscription/reminder",
+      SERVER_URL,
+    ).toString(),
+    body: {
+      subscriptionId,
+    },
+  });
 };
 
 // getUserSubscriptions
