@@ -6,15 +6,29 @@ import {
   PGHOST,
   PGPASSWORD,
   PGPORT,
+  PGSSL,
   PGUSER,
 } from "../config/env.js";
 
 const { Pool } = pg;
 
+const shouldUseSsl = () => {
+  if (!DATABASE_URL) {
+    return false;
+  }
+
+  if (PGSSL === "false") {
+    return false;
+  }
+
+  return NODE_ENV !== "development" && NODE_ENV !== "test";
+};
+
 const pool = new Pool(
   DATABASE_URL
     ? {
         connectionString: DATABASE_URL,
+        ssl: shouldUseSsl() ? { rejectUnauthorized: false } : false,
       }
     : {
         host: PGHOST,

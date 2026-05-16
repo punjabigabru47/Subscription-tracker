@@ -11,6 +11,7 @@ export const {
   PGHOST,
   PGPASSWORD,
   PGPORT,
+  PGSSL,
   PGUSER,
   PORT,
   SERVER_URL,

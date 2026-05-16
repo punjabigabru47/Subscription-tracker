@@ -29,6 +29,12 @@ if (process.env.NODE_ENV !== "test") {
   app.use(arcjetMiddleware);
 }
 
+app.get("/health", (req, res) => {
+  void req;
+
+  res.status(200).json({ status: "ok" });
+});
+
 app.use("/api/v1/auth", authRouter);
 app.use("/api/v1/subscriptions", subscriptionRouter);
 app.use("/api/v1/users", userRouter);
