@@ -5,6 +5,7 @@ import {
   createHttpError,
   createSubscriptionSchema,
   parseRequest,
+  updateSubscriptionSchema,
 } from "../utils/validation.js";
 
 const calculateRenewalDate = (startDate, frequency) => {
@@ -52,6 +53,32 @@ const getStatus = (renewalDate, customStatus) => {
 
   return renewal < today ? "expired" : "active";
 };
+
+const getSubscriptionId = (id) => {
+  const subscriptionId = Number(id);
+
+  if (!Number.isInteger(subscriptionId) || subscriptionId <= 0) {
+    throw createHttpError("Invalid subscription id", 400);
+  }
+
+  return subscriptionId;
+};
+
+const getOwnedSubscription = async (subscriptionId, userId) => {
+  const { rows } = await pool.query(
+    "SELECT * FROM subscriptions WHERE id = $1 AND user_id = $2",
+    [subscriptionId, userId],
+  );
+
+  if (rows.length === 0) {
+    throw createHttpError("Subscription not found", 404);
+  }
+
+  return rows[0];
+};
+
+const hasField = (object, field) =>
+  Object.prototype.hasOwnProperty.call(object, field);
 
 // createSubscription
 export const createSubscription = async (req, res, next) => {
@@ -151,6 +178,156 @@ const triggerSubscriptionWorkflow = async (subscriptionId) => {
       subscriptionId,
     },
   });
+};
+
+export const getSubscriptions = async (req, res, next) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT *
+       FROM subscriptions
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [req.user.id],
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Subscriptions fetched successfully",
+      data: rows,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getSubscription = async (req, res, next) => {
+  try {
+    const subscriptionId = getSubscriptionId(req.params.id);
+    const subscription = await getOwnedSubscription(subscriptionId, req.user.id);
+
+    res.status(200).json({
+      success: true,
+      message: "Subscription fetched successfully",
+      data: subscription,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateSubscription = async (req, res, next) => {
+  try {
+    const subscriptionId = getSubscriptionId(req.params.id);
+    const currentSubscription = await getOwnedSubscription(
+      subscriptionId,
+      req.user.id,
+    );
+    const updates = parseRequest(updateSubscriptionSchema, req.body);
+
+    const startDate = updates.startDate ?? currentSubscription.start_date;
+    const frequency = updates.frequency ?? currentSubscription.frequency;
+    const renewalDate =
+      updates.renewalDate ??
+      (updates.startDate || updates.frequency
+        ? calculateRenewalDate(startDate, frequency)
+        : currentSubscription.renewal_date);
+    const status =
+      updates.status ??
+      (updates.renewalDate || updates.startDate || updates.frequency
+        ? getStatus(renewalDate)
+        : currentSubscription.status);
+
+    const { rows } = await pool.query(
+      `UPDATE subscriptions
+       SET name = $1,
+           price = $2,
+           currency = $3,
+           frequency = $4,
+           category = $5,
+           payment_method = $6,
+           status = $7,
+           start_date = $8,
+           renewal_date = $9,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $10 AND user_id = $11
+       RETURNING *`,
+      [
+        updates.name ?? currentSubscription.name,
+        updates.price ?? currentSubscription.price,
+        updates.currency ?? currentSubscription.currency,
+        frequency,
+        hasField(updates, "category")
+          ? updates.category
+          : currentSubscription.category,
+        hasField(updates, "paymentMethod")
+          ? updates.paymentMethod
+          : currentSubscription.payment_method,
+        status,
+        startDate,
+        renewalDate,
+        subscriptionId,
+        req.user.id,
+      ],
+    );
+
+    res.status(200).json({
+      success: true,
+      message: "Subscription updated successfully",
+      data: rows[0],
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const deleteSubscription = async (req, res, next) => {
+  try {
+    const subscriptionId = getSubscriptionId(req.params.id);
+    const { rows } = await pool.query(
+      `DELETE FROM subscriptions
+       WHERE id = $1 AND user_id = $2
+       RETURNING *`,
+      [subscriptionId, req.user.id],
+    );
+
+    if (rows.length === 0) {
+      throw createHttpError("Subscription not found", 404);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Subscription deleted successfully",
+      data: rows[0],
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const cancelSubscription = async (req, res, next) => {
+  try {
+    const subscriptionId = getSubscriptionId(req.params.id);
+    const { rows } = await pool.query(
+      `UPDATE subscriptions
+       SET status = $1,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = $2 AND user_id = $3
+       RETURNING *`,
+      ["cancelled", subscriptionId, req.user.id],
+    );
+
+    if (rows.length === 0) {
+      throw createHttpError("Subscription not found", 404);
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Subscription cancelled successfully",
+      data: rows[0],
+    });
+  } catch (error) {
+    next(error);
+  }
 };
 
 // getUserSubscriptions

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import process from "node:process";
 import { after, before, test } from "node:test";
 import request from "supertest";
 
@@ -35,6 +36,26 @@ const createTestUser = async () => {
     token: response.body.data.token,
     user: response.body.data.user,
   };
+};
+
+const createTestSubscription = async (token, overrides = {}) => {
+  const response = await request(app)
+    .post("/api/v1/subscriptions")
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      name: "Netflix Premium",
+      price: 15.99,
+      currency: "USD",
+      frequency: "monthly",
+      category: "entertainment",
+      paymentMethod: "Credit Card",
+      startDate: "2026-05-16",
+      renewalDate: "2026-06-16",
+      ...overrides,
+    })
+    .expect(201);
+
+  return response.body.data;
 };
 
 before(async () => {
@@ -100,23 +121,63 @@ test("allows protected routes with a valid token", async () => {
 test("creates a subscription for an authenticated user", async () => {
   const { token, user } = await createTestUser();
 
-  const response = await request(app)
-    .post("/api/v1/subscriptions")
+  const subscription = await createTestSubscription(token);
+
+  assert.equal(subscription.name, "Netflix Premium");
+  assert.equal(subscription.user_id, user.id);
+  assert.equal(subscription.workflowRunId, "test-workflow-run");
+});
+
+test("gets, updates, cancels, and deletes an owned subscription", async () => {
+  const { token } = await createTestUser();
+  const subscription = await createTestSubscription(token);
+
+  const getResponse = await request(app)
+    .get(`/api/v1/subscriptions/${subscription.id}`)
+    .set("Authorization", `Bearer ${token}`)
+    .expect(200);
+
+  assert.equal(getResponse.body.data.id, subscription.id);
+
+  const updateResponse = await request(app)
+    .put(`/api/v1/subscriptions/${subscription.id}`)
     .set("Authorization", `Bearer ${token}`)
     .send({
-      name: "Netflix Premium",
-      price: 15.99,
-      currency: "USD",
-      frequency: "monthly",
-      category: "entertainment",
-      paymentMethod: "Credit Card",
-      startDate: "2026-05-16",
-      renewalDate: "2026-06-16",
+      name: "Netflix Standard",
+      price: 12.99,
     })
-    .expect(201);
+    .expect(200);
 
-  assert.equal(response.body.success, true);
-  assert.equal(response.body.data.name, "Netflix Premium");
-  assert.equal(response.body.data.user_id, user.id);
-  assert.equal(response.body.data.workflowRunId, "test-workflow-run");
+  assert.equal(updateResponse.body.data.name, "Netflix Standard");
+  assert.equal(updateResponse.body.data.price, "12.99");
+
+  const cancelResponse = await request(app)
+    .put(`/api/v1/subscriptions/${subscription.id}/cancel`)
+    .set("Authorization", `Bearer ${token}`)
+    .expect(200);
+
+  assert.equal(cancelResponse.body.data.status, "cancelled");
+
+  const deleteResponse = await request(app)
+    .delete(`/api/v1/subscriptions/${subscription.id}`)
+    .set("Authorization", `Bearer ${token}`)
+    .expect(200);
+
+  assert.equal(deleteResponse.body.data.id, subscription.id);
+
+  await request(app)
+    .get(`/api/v1/subscriptions/${subscription.id}`)
+    .set("Authorization", `Bearer ${token}`)
+    .expect(404);
+});
+
+test("prevents users from accessing another user's subscription", async () => {
+  const owner = await createTestUser();
+  const otherUser = await createTestUser();
+  const subscription = await createTestSubscription(owner.token);
+
+  await request(app)
+    .get(`/api/v1/subscriptions/${subscription.id}`)
+    .set("Authorization", `Bearer ${otherUser.token}`)
+    .expect(404);
 });
