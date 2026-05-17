@@ -36,8 +36,24 @@ export const authorize = async (req, res, next) => {
 
     const decoded = jwt.verify(token, JWT_SECRET);
     const userId = decoded.userId;
+    const tokenId = decoded.jti;
 
-    if (!userId) {
+    if (!userId || !tokenId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const blacklistedToken = await pool.query(
+      `SELECT token_id
+       FROM token_blacklist
+       WHERE token_id = $1
+         AND expires_at > CURRENT_TIMESTAMP`,
+      [tokenId],
+    );
+
+    if (blacklistedToken.rows.length > 0) {
       return res.status(401).json({
         success: false,
         message: "Unauthorized",
@@ -45,11 +61,23 @@ export const authorize = async (req, res, next) => {
     }
 
     const { rows } = await pool.query(
-      "SELECT id, name, email, created_at, updated_at FROM users WHERE id = $1",
+      `SELECT id, name, email, password_changed_at, password_version,
+              created_at, updated_at
+       FROM users
+       WHERE id = $1`,
       [userId],
     );
 
     if (rows.length === 0) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    const tokenPasswordVersion = decoded.passwordVersion ?? 0;
+
+    if (tokenPasswordVersion !== rows[0].password_version) {
       return res.status(401).json({
         success: false,
         message: "Unauthorized",

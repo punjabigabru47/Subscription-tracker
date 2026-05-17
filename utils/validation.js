@@ -51,6 +51,29 @@ export const signInSchema = z.object({
     .min(1, "Password is required"),
 });
 
+export const refreshTokenSchema = z.object({
+  refreshToken: z
+    .string({ error: "refreshToken is required" })
+    .min(1, "refreshToken is required"),
+});
+
+export const requestPasswordResetSchema = z.object({
+  email: z
+    .string({ error: "Email is required" })
+    .trim()
+    .toLowerCase()
+    .email("A valid email is required"),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z
+    .string({ error: "Reset token is required" })
+    .min(1, "Reset token is required"),
+  password: z
+    .string({ error: "Password is required" })
+    .min(8, "Password must be at least 8 characters long"),
+});
+
 const frequencySchema = z.enum(
   ["daily", "weekly", "monthly", "yearly", "annual", "annually"],
   {

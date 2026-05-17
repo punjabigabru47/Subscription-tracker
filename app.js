@@ -12,6 +12,7 @@ import subscriptionRouter from "./routes/subscription.route.js";
 import userRouter from "./routes/user.route.js";
 import workflowRouter from "./routes/workflow.route.js";
 
+const appPort = PORT || 5500;
 const app = express();
 app.set("trust proxy", 1);
 app.use(helmet());
@@ -48,9 +49,9 @@ export const initializeApp = async () => {
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
   await initializeApp();
 
-  app.listen(PORT, () => {
+  app.listen(appPort, () => {
     console.log(
-      `Subscription tracker API is running on http://localhost:${PORT}`,
+      `Subscription tracker API is running on http://localhost:${appPort}`,
     );
   });
 }

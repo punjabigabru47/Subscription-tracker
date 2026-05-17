@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import process from "node:process";
 import { after, before, test } from "node:test";
 import request from "supertest";
@@ -34,9 +35,13 @@ const createTestUser = async () => {
     email,
     password,
     token: response.body.data.token,
+    refreshToken: response.body.data.refreshToken,
     user: response.body.data.user,
   };
 };
+
+const hashToken = (token) =>
+  crypto.createHash("sha256").update(token).digest("hex");
 
 const createTestSubscription = async (token, overrides = {}) => {
   const response = await request(app)
@@ -84,6 +89,35 @@ test("signs up a user and returns a token", async () => {
   assert.notEqual(rows[0].password, "password123");
 });
 
+test("rejects invalid signup input", async () => {
+  const response = await request(app)
+    .post("/api/v1/auth/sign-up")
+    .send({
+      name: "",
+      email: "not-an-email",
+      password: "123",
+    })
+    .expect(400);
+
+  assert.equal(response.body.success, false);
+});
+
+test("rejects duplicate signup email", async () => {
+  const { email, password } = await createTestUser();
+
+  const response = await request(app)
+    .post("/api/v1/auth/sign-up")
+    .send({
+      name: "Duplicate User",
+      email,
+      password,
+    })
+    .expect(409);
+
+  assert.equal(response.body.success, false);
+  assert.equal(response.body.message, "User already exists");
+});
+
 test("signs in with valid credentials", async () => {
   const { email, password } = await createTestUser();
 
@@ -95,8 +129,105 @@ test("signs in with valid credentials", async () => {
   assert.equal(response.body.success, true);
   assert.equal(response.body.message, "User signed in successfully");
   assert.ok(response.body.data.token);
+  assert.ok(response.body.data.accessToken);
+  assert.ok(response.body.data.refreshToken);
   assert.equal(response.body.data.user.email, email);
   assert.equal(response.body.data.user.password, undefined);
+});
+
+test("refreshes a valid refresh token", async () => {
+  const { refreshToken: currentRefreshToken } = await createTestUser();
+
+  const response = await request(app)
+    .post("/api/v1/auth/refresh-token")
+    .send({ refreshToken: currentRefreshToken })
+    .expect(200);
+
+  assert.equal(response.body.success, true);
+  assert.ok(response.body.data.accessToken);
+  assert.ok(response.body.data.refreshToken);
+
+  await request(app)
+    .post("/api/v1/auth/refresh-token")
+    .send({ refreshToken: currentRefreshToken })
+    .expect(401);
+});
+
+test("blacklists access token on sign out", async () => {
+  const { token, refreshToken } = await createTestUser();
+
+  await request(app)
+    .post("/api/v1/auth/sign-out")
+    .set("Authorization", `Bearer ${token}`)
+    .send({ refreshToken })
+    .expect(200);
+
+  await request(app)
+    .get("/api/v1/users")
+    .set("Authorization", `Bearer ${token}`)
+    .expect(401);
+
+  await request(app)
+    .post("/api/v1/auth/refresh-token")
+    .send({ refreshToken })
+    .expect(401);
+});
+
+test("resets password and invalidates old sessions", async () => {
+  const { email, token, refreshToken, user } = await createTestUser();
+  const resetToken = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+  await pool.query(
+    `UPDATE users
+     SET password_reset_token_hash = $1,
+         password_reset_expires_at = $2
+     WHERE id = $3`,
+    [hashToken(resetToken), expiresAt, user.id],
+  );
+
+  const response = await request(app)
+    .post("/api/v1/auth/reset-password")
+    .send({
+      token: resetToken,
+      password: "newpassword123",
+    })
+    .expect(200);
+
+  assert.equal(response.body.success, true);
+
+  await request(app)
+    .get("/api/v1/users")
+    .set("Authorization", `Bearer ${token}`)
+    .expect(401);
+
+  await request(app)
+    .post("/api/v1/auth/refresh-token")
+    .send({ refreshToken })
+    .expect(401);
+
+  await request(app)
+    .post("/api/v1/auth/sign-in")
+    .send({
+      email,
+      password: "newpassword123",
+    })
+    .expect(200);
+});
+
+test("rejects signin with an invalid password", async () => {
+  const { email } = await createTestUser();
+
+  const response = await request(app)
+    .post("/api/v1/auth/sign-in")
+    .send({
+      email,
+      password: "wrongpassword",
+    })
+    .expect(401);
+
+  assert.equal(response.body.success, false);
+  assert.equal(response.body.message, "Invalid email or password");
 });
 
 test("rejects protected routes without a token", async () => {
@@ -126,6 +257,21 @@ test("creates a subscription for an authenticated user", async () => {
   assert.equal(subscription.name, "Netflix Premium");
   assert.equal(subscription.user_id, user.id);
   assert.equal(subscription.workflowRunId, "test-workflow-run");
+});
+
+test("rejects subscription creation without a token", async () => {
+  const response = await request(app)
+    .post("/api/v1/subscriptions")
+    .send({
+      name: "Netflix Premium",
+      price: 15.99,
+      frequency: "monthly",
+      startDate: "2026-05-16",
+    })
+    .expect(401);
+
+  assert.equal(response.body.success, false);
+  assert.equal(response.body.message, "Unauthorized");
 });
 
 test("gets, updates, cancels, and deletes an owned subscription", async () => {
@@ -171,6 +317,22 @@ test("gets, updates, cancels, and deletes an owned subscription", async () => {
     .expect(404);
 });
 
+test("rejects invalid subscription update input", async () => {
+  const { token } = await createTestUser();
+  const subscription = await createTestSubscription(token);
+
+  const response = await request(app)
+    .put(`/api/v1/subscriptions/${subscription.id}`)
+    .set("Authorization", `Bearer ${token}`)
+    .send({
+      price: -10,
+    })
+    .expect(400);
+
+  assert.equal(response.body.success, false);
+  assert.equal(response.body.message, "price must be greater than 0");
+});
+
 test("prevents users from accessing another user's subscription", async () => {
   const owner = await createTestUser();
   const otherUser = await createTestUser();
@@ -180,4 +342,43 @@ test("prevents users from accessing another user's subscription", async () => {
     .get(`/api/v1/subscriptions/${subscription.id}`)
     .set("Authorization", `Bearer ${otherUser.token}`)
     .expect(404);
+});
+
+test("prevents users from cancelling or deleting another user's subscription", async () => {
+  const owner = await createTestUser();
+  const otherUser = await createTestUser();
+  const subscription = await createTestSubscription(owner.token);
+
+  await request(app)
+    .put(`/api/v1/subscriptions/${subscription.id}/cancel`)
+    .set("Authorization", `Bearer ${otherUser.token}`)
+    .expect(404);
+
+  await request(app)
+    .delete(`/api/v1/subscriptions/${subscription.id}`)
+    .set("Authorization", `Bearer ${otherUser.token}`)
+    .expect(404);
+});
+
+test("returns health check status", async () => {
+  const response = await request(app).get("/health").expect(200);
+
+  assert.deepEqual(response.body, { status: "ok" });
+});
+
+test("runs migrations idempotently", async () => {
+  await runMigrations();
+
+  const { rows } = await pool.query(
+    "SELECT filename FROM schema_migrations ORDER BY filename",
+  );
+
+  assert.deepEqual(
+    rows.map((row) => row.filename),
+    [
+      "001_create_users.sql",
+      "002_create_subscriptions.sql",
+      "003_add_auth_security.sql",
+    ],
+  );
 });
